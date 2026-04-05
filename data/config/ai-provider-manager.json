@@ -1,0 +1,10 @@
+{
+  "backend": "agent-sdk",
+  "provider": "anthropic",
+  "model": "MiniMax-M2.7",
+  "baseUrl": "https://api.minimaxi.com/anthropic",
+  "loginMethod": "api-key",
+  "apiKeys": {
+    "anthropic": "YOUR_MINIMAX_API_KEY_HERE"
+  }
+}
