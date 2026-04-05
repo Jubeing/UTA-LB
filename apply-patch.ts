@@ -10,6 +10,7 @@
  *   2. Patches OpenAlice's broker registry (registry.ts)
  *   3. Patches OpenAlice's broker index (index.ts)
  *   4. Installs longbridge as a root dependency in OpenAlice (for tsup external resolution)
+ *   5. Copies UI customizations (PortfolioPage with Chinese stock names, Position.description type)
  */
 
 import { readFileSync, writeFileSync, existsSync, cpSync, mkdirSync, readdirSync } from 'fs'
@@ -39,7 +40,7 @@ function patchFile(filePath: string, find: string, replace: string): void {
   }
   content = content.replace(find, replace)
   writeFileSync(filePath, content)
-  console.log(`✓ Patched ${filePath.split('/').slice(-1)[0]}`)
+  console.log(`  ✓ Patched ${filePath.split('/').slice(-1)[0]}`)
 }
 
 // ==================== Main ====================
@@ -136,7 +137,6 @@ console.log('\n🔧 Adding longbridge to package.json dependencies...')
   const pkgPath = resolve(OPENALICE_ROOT, 'package.json')
   const content = readFileSync(pkgPath, 'utf8')
   if (!content.includes('"longbridge"')) {
-    // Add after "decimal.js"
     patchFile(pkgPath,
       '"decimal.js": "workspace:*"',
       '"decimal.js": "workspace:*",\n    "longbridge": "^4.0.0"'
@@ -151,7 +151,17 @@ console.log('\n🔧 Adding longbridge to package.json dependencies...')
 console.log('\n🔧 Configuring tsup external for longbridge...')
 const tsupPath = resolve(OPENALICE_ROOT, 'tsup.config.ts')
 if (!existsSync(tsupPath)) {
-  writeFileSync(tsupPath, `import { defineConfig } from 'tsup'\n\nexport default defineConfig({\n  entry: ['src/main.ts'],\n  format: ['esm'],\n  dts: true,\n  splitting: false,\n  sourcemap: true,\n  external: ['longbridge'],\n})\n`)
+  writeFileSync(tsupPath, `import { defineConfig } from 'tsup'
+
+export default defineConfig({
+  entry: ['src/main.ts'],
+  format: ['esm'],
+  dts: true,
+  splitting: false,
+  sourcemap: true,
+  external: ['longbridge'],
+})
+`)
   console.log('  ✓ tsup.config.ts created with longbridge as external')
 } else {
   const content = readFileSync(tsupPath, 'utf8')
@@ -159,6 +169,21 @@ if (!existsSync(tsupPath)) {
     patchFile(tsupPath, 'external: []', 'external: [\'longbridge\']')
   } else {
     console.log('  ✓ tsup already configured with longbridge external')
+  }
+}
+
+// Step 7: Copy UI customizations (PortfolioPage with Chinese stock names, Position.description type)
+console.log('\n🔧 Copying UI customizations...')
+{
+  const uiSrc = resolve(UTA_LB_ROOT, 'ui-pages')
+  const uiDest = resolve(OPENALICE_ROOT, 'ui/src')
+  for (const f of ['PortfolioPage.tsx', 'types.ts']) {
+    const src = resolve(uiSrc, f)
+    const dest = resolve(uiDest, f)
+    if (existsSync(src)) {
+      cpSync(src, dest, { force: true })
+      console.log(`  ✓ ${f} → ui/src/`)
+    }
   }
 }
 
