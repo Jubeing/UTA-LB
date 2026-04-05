@@ -286,10 +286,15 @@ export class LongbridgeBroker implements IBroker {
   async getPositions(): Promise<Position[]> {
     try {
       const ctx = await this.getTradeCtx()
+      // SDK v4 returns { channels: [...] } where each channel has positions[]
+      // (Different from raw HTTP API which uses list[].stock_info[])
+      // SDK v4: stockPositions() returns { channels: [...] }
+      // Each channel has positions[] (already camelCase)
       const resp = await ctx.stockPositions() as any
       const raw: any[] = []
-      for (const ch of resp.list ?? []) {
-        for (const p of ch.stock_info ?? []) {
+      const container = resp.channels ?? resp.list ?? []
+      for (const ch of container) {
+        for (const p of ch.positions ?? ch.stock_info ?? []) {
           raw.push(p)
         }
       }
