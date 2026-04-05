@@ -7,53 +7,42 @@
  *
  * This script:
  *   1. Copies broker source files to OpenAlice's src/domain/trading/brokers/longbridge/
- *   2. Patches OpenAlice's broker registry (src/domain/trading/brokers/registry.ts)
- *   3. Patches OpenAlice's broker index   (src/domain/trading/brokers/index.ts)
- *   4. Copies the packages/longbridge/ workspace package to OpenAlice's packages/
+ *   2. Patches OpenAlice's broker registry (registry.ts)
+ *   3. Patches OpenAlice's broker index (index.ts)
+ *   4. Installs longbridge as a root dependency in OpenAlice (for tsup external resolution)
  */
 
 import { readFileSync, writeFileSync, existsSync, cpSync, mkdirSync, readdirSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { execSync } from 'child_process'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const UTA_LB_ROOT = __dirname
 
-interface Patch {
-  find: string
-  replace: string
-}
+// ==================== Helpers ====================
 
-function patchFile(filePath: string, patches: Patch[]): void {
-  let content = readFileSync(filePath, 'utf8')
-  for (const { find, replace } of patches) {
-    if (!content.includes(find)) {
-      console.error(`⚠  Could not find patch marker in ${filePath}:`)
-      console.error(`   ${find}`)
-    } else {
-      content = content.replace(find, replace)
-    }
-  }
-  writeFileSync(filePath, content)
-  console.log(`✓ Patched ${filePath}`)
-}
-
-function copyPackage(src: string, dest: string): void {
-  if (resolve(src) === resolve(dest)) {
-    console.log(`  ✓ already in place — skipping`)
-    return
-  }
+function copyDir(src: string, dest: string): void {
   if (!existsSync(dest)) mkdirSync(dest, { recursive: true })
-  const files = readdirSync(src).filter(f => f !== 'node_modules' && f !== 'dist')
-  for (const f of files) {
+  for (const f of readdirSync(src)) {
+    if (f === 'node_modules' || f === 'dist') continue
     cpSync(resolve(src, f), resolve(dest, f), { force: true, recursive: true })
   }
   console.log(`  ✓ ${src.split('/').slice(-2).join('/')} → ${dest.split('/').slice(-2).join('/')}`)
 }
 
-// ---- Main ----
+function patchFile(filePath: string, find: string, replace: string): void {
+  let content = readFileSync(filePath, 'utf8')
+  if (!content.includes(find)) {
+    console.error(`⚠  Could not find patch marker in ${filePath}`)
+    return
+  }
+  content = content.replace(find, replace)
+  writeFileSync(filePath, content)
+  console.log(`✓ Patched ${filePath.split('/').slice(-1)[0]}`)
+}
+
+// ==================== Main ====================
 
 const OPENALICE_ROOT = process.env.OPENALICE_ROOT
 if (!OPENALICE_ROOT) {
@@ -64,67 +53,46 @@ if (!OPENALICE_ROOT) {
 
 if (!existsSync(resolve(OPENALICE_ROOT, 'src/domain/trading/brokers'))) {
   console.error(`❌ OpenAlice source not found at ${OPENALICE_ROOT}`)
-  console.error('   Please check that OPENALICE_ROOT points to a valid OpenAlice installation.')
   process.exit(1)
 }
 
 console.log(`\n📦 Installing UTA-LB into OpenAlice at ${OPENALICE_ROOT}\n`)
 
-// Step 1: Copy broker source files
-console.log('🔧 Copying broker source files to src/domain/trading/brokers/longbridge/...')
-const brokerSrcDir = resolve(OPENALICE_ROOT, 'src/domain/trading/brokers/longbridge')
-const brokerPkgSrc = resolve(UTA_LB_ROOT, 'packages/longbridge/src')
-if (!existsSync(brokerSrcDir)) mkdirSync(brokerSrcDir, { recursive: true })
-for (const f of ['index.ts', 'longbridge-auth.ts', 'LongbridgeBroker.ts', 'longbridge-contracts.ts', 'longbridge-types.ts']) {
-  const srcFile = resolve(brokerPkgSrc, f)
-  const destFile = resolve(brokerSrcDir, f)
-  if (existsSync(srcFile)) {
-    cpSync(srcFile, destFile, { force: true })
-  }
-}
-console.log('  ✓ broker source files copied')
+// Step 1: Copy broker source files → src/domain/trading/brokers/longbridge/
+console.log('🔧 Copying broker source to src/domain/trading/brokers/longbridge/...')
+const brokerDest = resolve(OPENALICE_ROOT, 'src/domain/trading/brokers/longbridge')
+copyDir(resolve(UTA_LB_ROOT, 'src/domain/trading/brokers/longbridge'), brokerDest)
 
-// Step 2: Copy workspace package
-console.log('\n🔧 Copying workspace package to packages/longbridge/...')
-const destPkg = resolve(OPENALICE_ROOT, 'packages/longbridge')
-copyPackage(resolve(UTA_LB_ROOT, 'packages/longbridge'), destPkg)
-
-// Step 3: Copy broker infrastructure files (types, registry, factory, index)
-console.log('\n🔧 Patching broker infrastructure...')
-const infraFiles = {
-  'types.ts': resolve(OPENALICE_ROOT, 'src/domain/trading/brokers/types.ts'),
-  'registry.ts': resolve(OPENALICE_ROOT, 'src/domain/trading/brokers/registry.ts'),
-  'factory.ts': resolve(OPENALICE_ROOT, 'src/domain/trading/brokers/factory.ts'),
-  'index.ts': resolve(OPENALICE_ROOT, 'src/domain/trading/brokers/index.ts'),
-}
-for (const [name, path] of Object.entries(infraFiles)) {
-  const srcFile = resolve(UTA_LB_ROOT, 'src/domain/trading/brokers', name)
-  if (existsSync(srcFile) && existsSync(path)) {
-    const srcContent = readFileSync(srcFile, 'utf8')
-    const destContent = readFileSync(path, 'utf8')
-    if (srcContent !== destContent) {
-      cpSync(srcFile, path, { force: true })
-      console.log(`  ✓ ${name} updated`)
-    } else {
-      console.log(`  ✓ ${name} already current`)
-    }
+// Step 2: Copy broker infrastructure files (types, registry, factory, index)
+console.log('\n🔧 Copying broker infrastructure files...')
+const infraFiles = ['types.ts', 'registry.ts', 'factory.ts', 'index.ts']
+for (const f of infraFiles) {
+  const src = resolve(UTA_LB_ROOT, 'src/domain/trading/brokers', f)
+  const dest = resolve(OPENALICE_ROOT, 'src/domain/trading/brokers', f)
+  if (!existsSync(src)) continue
+  const srcContent = readFileSync(src, 'utf8')
+  const destExists = existsSync(dest)
+  if (!destExists || srcContent !== readFileSync(dest, 'utf8')) {
+    cpSync(src, dest, { force: true })
+    console.log(`  ✓ ${f} updated`)
+  } else {
+    console.log(`  ✓ ${f} already current`)
   }
 }
 
-// Step 4: Patch registry
-console.log('\n🔧 Patching broker registry...')
+// Step 3: Patch registry.ts — add LongbridgeBroker import + registry entry
+console.log('\n🔧 Patching registry.ts...')
 const registryPath = resolve(OPENALICE_ROOT, 'src/domain/trading/brokers/registry.ts')
-if (existsSync(registryPath)) {
-  const registryContent = readFileSync(registryPath, 'utf8')
-  if (!registryContent.includes("'longbridge'")) {
-    patchFile(registryPath, [
-      {
-        find: `import { LongbridgeBroker } from './longbridge/LongbridgeBroker.js'`,
-        replace: `import { LongbridgeBroker } from './longbridge/LongbridgeBroker.js'`,
-      },
-    ])
-    let content = readFileSync(registryPath, 'utf8')
-    const insertAfter = `export const BROKER_REGISTRY: Record<string, BrokerRegistryEntry> = {`
+{
+  const content = readFileSync(registryPath, 'utf8')
+  if (!content.includes("'longbridge'")) {
+    // Add import
+    const importMarker = "import { IbkrBroker } from './ibkr/IbkrBroker.js'"
+    const importReplace = "import { IbkrBroker } from './ibkr/IbkrBroker.js'\nimport { LongbridgeBroker } from './longbridge/LongbridgeBroker.js'"
+    patchFile(registryPath, importMarker, importReplace)
+
+    // Add registry entry
+    const insertAfter = "export const BROKER_REGISTRY: Record<string, BrokerRegistryEntry> = {"
     const entry = `  longbridge: {
     configSchema: LongbridgeBroker.configSchema,
     configFields: LongbridgeBroker.configFields,
@@ -139,28 +107,58 @@ if (existsSync(registryPath)) {
     guardCategory: 'securities',
   },
 `
-    content = content.replace(insertAfter, entry + insertAfter)
-    writeFileSync(registryPath, content)
-    console.log('  ✓ registry.ts patched')
+    let content2 = readFileSync(registryPath, 'utf8')
+    content2 = content2.replace(insertAfter, entry + insertAfter)
+    writeFileSync(registryPath, content2)
+    console.log('  ✓ longbridge registry entry added')
   } else {
-    console.log('  ✓ registry.ts already contains longbridge')
+    console.log('  ✓ registry already contains longbridge')
   }
 }
 
-// Step 5: Patch broker index
-console.log('\n🔧 Patching broker index...')
+// Step 4: Patch index.ts — add Longbridge exports
+console.log('\n🔧 Patching index.ts...')
 const indexPath = resolve(OPENALICE_ROOT, 'src/domain/trading/brokers/index.ts')
-if (existsSync(indexPath)) {
-  const indexContent = readFileSync(indexPath, 'utf8')
-  if (!indexContent.includes("'./longbridge'") && !indexContent.includes('@traderalice/longbridge')) {
-    patchFile(indexPath, [
-      {
-        find: `// Longbridge`,
-        replace: `// Longbridge\nexport { LongbridgeBroker } from './longbridge/LongbridgeBroker.js'\nexport { longbridgeConfigFields } from './longbridge/LongbridgeBroker.js'`,
-      },
-    ])
+{
+  const content = readFileSync(indexPath, 'utf8')
+  if (!content.includes("'./longbridge/LongbridgeBroker.js'")) {
+    const marker = "// IBKR\nexport { IbkrBroker } from './ibkr/index.js'"
+    const replace = `// Longbridge\nexport { LongbridgeBroker } from './longbridge/LongbridgeBroker.js'\nexport { longbridgeConfigFields } from './longbridge/LongbridgeBroker.js'\n\n// IBKR\nexport { IbkrBroker } from './ibkr/index.js'`
+    patchFile(indexPath, marker, replace)
   } else {
-    console.log('  ✓ index.ts already contains longbridge export')
+    console.log('  ✓ index.ts already exports longbridge')
+  }
+}
+
+// Step 5: Add longbridge to package.json dependencies
+console.log('\n🔧 Adding longbridge to package.json dependencies...')
+{
+  const pkgPath = resolve(OPENALICE_ROOT, 'package.json')
+  const content = readFileSync(pkgPath, 'utf8')
+  if (!content.includes('"longbridge"')) {
+    // Add after "decimal.js"
+    patchFile(pkgPath,
+      '"decimal.js": "workspace:*"',
+      '"decimal.js": "workspace:*",\n    "longbridge": "^4.0.0"'
+    )
+    console.log('  ✓ longbridge dependency added')
+  } else {
+    console.log('  ✓ longbridge already in dependencies')
+  }
+}
+
+// Step 6: Add tsup external for longbridge (so it's not bundled)
+console.log('\n🔧 Configuring tsup external for longbridge...')
+const tsupPath = resolve(OPENALICE_ROOT, 'tsup.config.ts')
+if (!existsSync(tsupPath)) {
+  writeFileSync(tsupPath, `import { defineConfig } from 'tsup'\n\nexport default defineConfig({\n  entry: ['src/main.ts'],\n  format: ['esm'],\n  dts: true,\n  splitting: false,\n  sourcemap: true,\n  external: ['longbridge'],\n})\n`)
+  console.log('  ✓ tsup.config.ts created with longbridge as external')
+} else {
+  const content = readFileSync(tsupPath, 'utf8')
+  if (!content.includes('longbridge')) {
+    patchFile(tsupPath, 'external: []', 'external: [\'longbridge\']')
+  } else {
+    console.log('  ✓ tsup already configured with longbridge external')
   }
 }
 
