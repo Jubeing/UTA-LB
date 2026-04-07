@@ -6,11 +6,12 @@
  *   node apply-patch.ts
  *
  * This script:
- *   1. Copies broker source files to OpenAlice's src/domain/trading/brokers/longbridge/
- *   2. Patches OpenAlice's broker registry (registry.ts)
- *   3. Patches OpenAlice's broker index (index.ts)
- *   4. Installs longbridge as a root dependency in OpenAlice (for tsup external resolution)
- *   5. Copies UI customizations (PortfolioPage with Chinese stock names, Position.description type)
+ *  1. Copies broker source files to OpenAlice's src/domain/trading/brokers/longbridge/
+ *  2. Patches OpenAlice's broker registry (registry.ts)
+ *  3. Patches OpenAlice's broker index (index.ts)
+ *  4. Installs longbridge as a root dependency in OpenAlice (for tsup external resolution)
+ *  5. Copies UI customizations (PortfolioPage with Chinese stock names, Position.description type)
+ *  6. Applies EIA API fixes (credential field name, sort param format, value type)
  */
 
 import { readFileSync, writeFileSync, existsSync, cpSync, mkdirSync, readdirSync } from 'fs'
@@ -184,6 +185,91 @@ console.log('\n🔧 Copying UI customizations...')
       cpSync(src, dest, { force: true })
       console.log(`  ✓ ${f} → ui/src/`)
     }
+  }
+}
+
+// Step 8: Apply EIA API fixes
+console.log('\n🔧 Applying EIA API fixes...')
+
+// Fix 8a: Fix market-data.json apiUrl (6900 → 6901)
+const marketDataConfigPath = resolve(OPENALICE_ROOT, 'data/config/market-data.json')
+if (existsSync(marketDataConfigPath)) {
+  const configContent = readFileSync(marketDataConfigPath, 'utf8')
+  if (configContent.includes('"apiUrl": "http://localhost:6900"')) {
+    const newContent = configContent.replace('"apiUrl": "http://localhost:6900"', '"apiUrl": "http://localhost:6901"')
+    writeFileSync(marketDataConfigPath, newContent)
+    console.log('  ✓ market-data.json: apiUrl 6900 → 6901')
+  } else {
+    console.log('  ✓ market-data.json: apiUrl already correct')
+  }
+}
+
+// Fix 8b: Fix EIA credential field name in dist/main.js
+const mainJsPath = resolve(OPENALICE_ROOT, 'dist/main.js')
+if (existsSync(mainJsPath)) {
+  const mainContent = readFileSync(mainJsPath, 'utf8')
+  
+  // Fix TEST_ENDPOINTS credField: "eia_eia_api_key" → "eia_api_key"
+  if (mainContent.includes('credField: "eia_eia_api_key"')) {
+    const newContent = mainContent.replace(/credField: "eia_eia_api_key"/g, 'credField: "eia_api_key"')
+    writeFileSync(mainJsPath, newContent)
+    console.log('  ✓ dist/main.js: EIA credField fixed')
+  } else {
+    console.log('  ✓ dist/main.js: EIA credField already correct')
+  }
+  
+  // Fix credential map eia: "eia_eia_api_key" → "eia_api_key"
+  const mapContent = readFileSync(mainJsPath, 'utf8')
+  if (mapContent.includes('eia: "eia_eia_api_key"')) {
+    const newContent = mapContent.replace(/eia: "eia_eia_api_key"/g, 'eia: "eia_api_key"')
+    writeFileSync(mainJsPath, newContent)
+    console.log('  ✓ dist/main.js: credential map fixed')
+  } else {
+    console.log('  ✓ dist/main.js: credential map already correct')
+  }
+}
+
+// Fix 8c: Fix EIA API sort parameter format and value type in opentypebb chunk
+const opentypebbChunkPath = resolve(OPENALICE_ROOT, 'packages/opentypebb/dist/chunk-USYUVOJM.js')
+if (existsSync(opentypebbChunkPath)) {
+  const chunkContent = readFileSync(opentypebbChunkPath, 'utf8')
+  let modified = false
+  
+  // Fix sort parameter: JSON.stringify format → proper URL params format
+  if (chunkContent.includes('sort: JSON.stringify([{ column: "period", direction: "desc" }])')) {
+    const newContent = chunkContent
+      .replace(/sort: JSON\.stringify\(\[\{ column: "period", direction: "desc" \}\]\)/g, 
+               '"sort[0][column]": "period", "sort[0][direction]": "desc"')
+    writeFileSync(opentypebbChunkPath, newContent)
+    console.log('  ✓ opentypebb chunk: EIA sort parameter format fixed')
+    modified = true
+  } else {
+    console.log('  ✓ opentypebb chunk: sort parameter already correct')
+  }
+  
+  // Fix Zod schema: value type should accept string (EIA API v2 returns strings)
+  // ShortTermEnergyOutlookDataSchema uses z216
+  if (chunkContent.includes('value: z216.number().nullable().default(null)')) {
+    const newContent = readFileSync(opentypebbChunkPath, 'utf8')
+      .replace(/value: z216\.number\(\)\.nullable\(\)\.default\(null\)/g, 
+               'value: z216.union([z216.string(), z216.number()]).nullable().default(null)')
+    writeFileSync(opentypebbChunkPath, newContent)
+    console.log('  ✓ opentypebb chunk: ShortTermEnergyOutlook value type fixed')
+    modified = true
+  } else {
+    console.log('  ✓ opentypebb chunk: ShortTermEnergyOutlook value type already correct')
+  }
+  
+  // PetroleumStatusReportDataSchema uses z215
+  if (chunkContent.includes('value: z215.number().nullable().default(null)')) {
+    const newContent = readFileSync(opentypebbChunkPath, 'utf8')
+      .replace(/value: z215\.number\(\)\.nullable\(\)\.default\(null\)/g, 
+               'value: z215.union([z215.string(), z215.number()]).nullable().default(null)')
+    writeFileSync(opentypebbChunkPath, newContent)
+    console.log('  ✓ opentypebb chunk: PetroleumStatusReport value type fixed')
+    modified = true
+  } else {
+    console.log('  ✓ opentypebb chunk: PetroleumStatusReport value type already correct')
   }
 }
 
