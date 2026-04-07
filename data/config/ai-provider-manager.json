@@ -1,10 +1,10 @@
 {
-  "backend": "agent-sdk",
+  "backend": "vercel-ai-sdk",
   "provider": "anthropic",
   "model": "MiniMax-M2.7",
-  "baseUrl": "https://api.minimaxi.com/anthropic",
+  "baseUrl": "https://api.minimaxi.com/anthropic/v1",
   "loginMethod": "api-key",
   "apiKeys": {
-    "anthropic": "YOUR_MINIMAX_API_KEY_HERE"
+    "anthropic": "sk-cp-wawTmZAGbrWQGhb-6gp4AV2vtLo594WU8Q8g_bDrtiuquqy9NIz5RDKqWc3jH19pAcXu0ftS6ICvrpbWKg2LLc1r5AYc5S8OFwV4o7rtH0w1y1EinLB2OEE"
   }
 }
